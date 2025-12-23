@@ -1,15 +1,19 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/opensearch-project/opensearch-go/v2"
+	"github.com/opensearch-project/opensearch-go/v2/opensearchapi"
 	"github.com/rs/cors"
 )
 
@@ -92,12 +96,12 @@ func (a *App) ingestLog(w http.ResponseWriter, r *http.Request) {
 	
 	indexName := "logs-" + time.Now().Format("2006.01.02")
 	
-	req := opensearch.IndexRequest{
+	req := opensearchapi.IndexRequest{
 		Index: indexName,
-		Body:  string(data),
+		Body:  bytes.NewReader(data),
 	}
 
-	res, err := a.osClient.Index(context.Background(), req)
+	res, err := req.Do(context.Background(), a.osClient)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -155,35 +159,45 @@ func (a *App) searchLogs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	queryJSON, _ := json.Marshal(query)
-
-	req := opensearch.SearchRequest{
-		Index: []string{"logs-*"},
-		Body:  string(queryJSON),
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(query); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
-	res, err := a.osClient.Search(context.Background(), req)
+	req := opensearchapi.SearchRequest{
+		Index: []string{"logs-*"},
+		Body:  &buf,
+	}
+
+	res, err := req.Do(context.Background(), a.osClient)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	defer res.Body.Close()
 
-	var result map[string]interface{}
-	json.NewDecoder(res.Body).Decode(&result)
-
+	body, _ := io.ReadAll(res.Body)
+	
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	w.Write(body)
 }
 
 func (a *App) healthCheck(w http.ResponseWriter, r *http.Request) {
-	res, err := a.osClient.Ping()
+	req := opensearchapi.PingRequest{}
+	res, err := req.Do(context.Background(), a.osClient)
 	if err != nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy", "error": err.Error()})
 		return
 	}
 	defer res.Body.Close()
+
+	if res.IsError() {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy", "error": res.String()})
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
