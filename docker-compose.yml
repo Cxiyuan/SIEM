@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  opensearch:
+    image: opensearchproject/opensearch:3.4.0
+    container_name: siem-opensearch
+    environment:
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=Admin@123
+      - plugins.security.disabled=true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    ports:
+      - "9200:9200"
+      - "9600:9600"
+    networks:
+      - siem-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  backend:
+    image: ${DOCKER_REGISTRY:-ghcr.io}/${GITHUB_REPOSITORY:-cxiyuan/siem}:backend-${IMAGE_TAG:-latest}
+    container_name: siem-backend
+    environment:
+      - OPENSEARCH_URL=http://opensearch:9200
+      - PORT=8080
+    ports:
+      - "8080:8080"
+    networks:
+      - siem-network
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    image: ${DOCKER_REGISTRY:-ghcr.io}/${GITHUB_REPOSITORY:-cxiyuan/siem}:frontend-${IMAGE_TAG:-latest}
+    container_name: siem-frontend
+    ports:
+      - "80:80"
+    networks:
+      - siem-network
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  opensearch-data:
+    driver: local
+
+networks:
+  siem-network:
+    driver: bridge

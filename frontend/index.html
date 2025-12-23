@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SIEM 日志审计系统</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        header {
+            background: #1a1a2e;
+            color: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+        }
+        h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+        .search-panel {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .search-form {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr auto;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        input, button {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        button {
+            background: #0066cc;
+            color: white;
+            border: none;
+            cursor: pointer;
+            padding: 10px 20px;
+        }
+        button:hover {
+            background: #0052a3;
+        }
+        .time-range {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .results {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .log-entry {
+            border-bottom: 1px solid #eee;
+            padding: 15px 0;
+        }
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+        .log-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        .log-timestamp {
+            color: #666;
+            font-size: 13px;
+        }
+        .log-level {
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .log-level.info { background: #e3f2fd; color: #0277bd; }
+        .log-level.warn { background: #fff3e0; color: #ef6c00; }
+        .log-level.error { background: #ffebee; color: #c62828; }
+        .log-message {
+            color: #333;
+            margin-top: 5px;
+        }
+        .log-source {
+            color: #888;
+            font-size: 12px;
+            margin-top: 5px;
+        }
+        .pagination {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .stat-value {
+            font-size: 28px;
+            font-weight: bold;
+            color: #0066cc;
+        }
+        .stat-label {
+            color: #666;
+            font-size: 13px;
+            margin-top: 5px;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔒 SIEM 日志审计系统</h1>
+            <p>Security Information and Event Management</p>
+        </header>
+
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-value" id="totalLogs">0</div>
+                <div class="stat-label">总日志数</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="errorCount">0</div>
+                <div class="stat-label">错误数</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="warnCount">0</div>
+                <div class="stat-label">警告数</div>
+            </div>
+        </div>
+
+        <div class="search-panel">
+            <div class="search-form">
+                <input type="text" id="queryInput" placeholder="搜索日志 (例: level:error OR message:failed)">
+                <input type="datetime-local" id="startTime">
+                <input type="datetime-local" id="endTime">
+                <button onclick="searchLogs()">🔍 搜索</button>
+            </div>
+        </div>
+
+        <div class="results">
+            <h2>日志列表</h2>
+            <div id="logsList"></div>
+            <div class="pagination">
+                <button onclick="prevPage()">← 上一页</button>
+                <span id="pageInfo">第 1 页</span>
+                <button onclick="nextPage()">下一页 →</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = window.location.protocol + '//' + window.location.hostname + ':8080/api';
+        let currentPage = 0;
+        const pageSize = 50;
+
+        async function searchLogs() {
+            const query = document.getElementById('queryInput').value || '*';
+            const startTime = document.getElementById('startTime').value;
+            const endTime = document.getElementById('endTime').value;
+
+            const payload = {
+                query: query,
+                start_time: startTime,
+                end_time: endTime,
+                size: pageSize,
+                from: currentPage * pageSize
+            };
+
+            try {
+                const response = await fetch(`${API_URL}/logs/search`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await response.json();
+                displayLogs(data);
+                updateStats(data);
+            } catch (error) {
+                console.error('搜索失败:', error);
+                document.getElementById('logsList').innerHTML = '<div class="loading">搜索失败，请检查服务是否运行</div>';
+            }
+        }
+
+        function displayLogs(data) {
+            const logsList = document.getElementById('logsList');
+            
+            if (!data.hits || !data.hits.hits || data.hits.hits.length === 0) {
+                logsList.innerHTML = '<div class="loading">没有找到日志</div>';
+                return;
+            }
+
+            const logsHTML = data.hits.hits.map(hit => {
+                const log = hit._source;
+                return `
+                    <div class="log-entry">
+                        <div class="log-header">
+                            <span class="log-timestamp">${log.timestamp || 'N/A'}</span>
+                            <span class="log-level ${log.level || 'info'}">${log.level || 'INFO'}</span>
+                        </div>
+                        <div class="log-message">${log.message || ''}</div>
+                        <div class="log-source">来源: ${log.source || 'unknown'}</div>
+                    </div>
+                `;
+            }).join('');
+
+            logsList.innerHTML = logsHTML;
+            
+            const total = data.hits.total.value || 0;
+            const currentPageNum = Math.floor(currentPage) + 1;
+            const totalPages = Math.ceil(total / pageSize);
+            document.getElementById('pageInfo').textContent = `第 ${currentPageNum} 页 / 共 ${totalPages} 页 (总计 ${total} 条)`;
+        }
+
+        function updateStats(data) {
+            if (!data.hits || !data.hits.hits) return;
+            
+            const total = data.hits.total.value || 0;
+            document.getElementById('totalLogs').textContent = total.toLocaleString();
+
+            const logs = data.hits.hits;
+            const errorCount = logs.filter(hit => hit._source.level === 'error').length;
+            const warnCount = logs.filter(hit => hit._source.level === 'warn').length;
+            
+            document.getElementById('errorCount').textContent = errorCount;
+            document.getElementById('warnCount').textContent = warnCount;
+        }
+
+        function nextPage() {
+            currentPage++;
+            searchLogs();
+        }
+
+        function prevPage() {
+            if (currentPage > 0) {
+                currentPage--;
+                searchLogs();
+            }
+        }
+
+        window.onload = () => {
+            const now = new Date();
+            const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+            
+            document.getElementById('startTime').value = yesterday.toISOString().slice(0, 16);
+            document.getElementById('endTime').value = now.toISOString().slice(0, 16);
+            
+            searchLogs();
+        };
+    </script>
+</body>
+</html>
