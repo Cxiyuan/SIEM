@@ -31,7 +31,7 @@ services:
       retries: 5
 
   backend:
-    image: ${DOCKER_REGISTRY:-ghcr.io}/${GITHUB_REPOSITORY:-cxiyuan/siem}:backend-${IMAGE_TAG:-latest}
+    image: siem-backend:latest
     container_name: siem-backend
     environment:
       - OPENSEARCH_URL=http://opensearch:9200
@@ -46,7 +46,7 @@ services:
     restart: unless-stopped
 
   frontend:
-    image: ${DOCKER_REGISTRY:-ghcr.io}/${GITHUB_REPOSITORY:-cxiyuan/siem}:frontend-${IMAGE_TAG:-latest}
+    image: siem-frontend:latest
     container_name: siem-frontend
     ports:
       - "80:80"
