@@ -145,3 +145,10 @@ jobs:
           name: siem-deployment-${{ github.sha }}
           path: siem-deployment.tar.gz
           retention-days: 30
+
+      - name: Delete intermediate artifacts
+        uses: geekyeggo/delete-artifact@v5
+        with:
+          name: |
+            backend-image
+            frontend-image
